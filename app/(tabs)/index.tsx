@@ -31,7 +31,7 @@ export default function Main() {
     <View style={styles.container}>
       {!title ? (
         <>
-          <Text style={styles.title}>🎶 Music Player</Text>
+          <Text style={styles.title}>Music Player</Text>
           <Text style={styles.track}>No track playing</Text>
         </>
       ) : (
