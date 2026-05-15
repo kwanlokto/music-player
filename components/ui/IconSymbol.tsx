@@ -20,6 +20,7 @@ const MAPPING = {
   'chevron.right': 'chevron-right',
   'folder.fill': 'folder',
   'music.note.list': 'queue-music',
+  'arrow.down.circle.fill': 'download',
 } as IconMapping;
 
 /**

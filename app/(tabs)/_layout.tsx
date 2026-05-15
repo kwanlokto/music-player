@@ -53,6 +53,15 @@ export default function TabLayout() {
           ),
         }}
       />
+      <Tabs.Screen
+        name="download"
+        options={{
+          title: 'Download',
+          tabBarIcon: ({ color }) => (
+            <IconSymbol size={28} name="arrow.down.circle.fill" color={color} />
+          ),
+        }}
+      />
     </Tabs>
   );
 }
