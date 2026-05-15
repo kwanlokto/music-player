@@ -12,33 +12,109 @@ import {
   useColorScheme,
 } from 'react-native';
 
+import { CustomFlatList } from '@/components/CustomFlatList';
 import { Colors, primaryButton } from '@/constants/Colors';
+import { formatDuration } from '@/helpers';
 
 const COBALT_API = 'https://api.cobalt.tools/';
 
-type DownloadStatus = 'idle' | 'fetching' | 'downloading' | 'saving' | 'done' | 'error';
+// Multiple instances as fallback in case one is down
+const INVIDIOUS_INSTANCES = [
+  'https://invidious.privacyredirect.com',
+  'https://inv.nadeko.net',
+  'https://yt.artemislena.eu',
+];
+
+type SearchResult = {
+  videoId: string;
+  title: string;
+  author: string;
+  duration: number;
+};
+
+type InvidiousItem = {
+  type: string;
+  videoId: string;
+  title: string;
+  author: string;
+  lengthSeconds?: number;
+};
+
+type DownloadStage = '' | 'fetching' | 'downloading' | 'saving';
 
 export default function DownloadScreen() {
-  const [url, setUrl] = useState('');
-  const [status, setStatus] = useState<DownloadStatus>('idle');
-  const [progress, setProgress] = useState(0);
-  const [errorMsg, setErrorMsg] = useState('');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState<SearchResult[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [downloadProgress, setDownloadProgress] = useState(0);
+  const [downloadStage, setDownloadStage] = useState<DownloadStage>('');
+
   const scheme = useColorScheme() ?? 'dark';
   const styles = getStyles(scheme);
 
-  const handleDownload = async () => {
-    if (!url.trim()) return;
+  const handleSearch = async () => {
+    if (!query.trim()) return;
+    setSearching(true);
+    setSearchError('');
+    setResults([]);
 
-    setStatus('fetching');
-    setProgress(0);
-    setErrorMsg('');
+    let lastError: string | null = null;
+
+    for (const instance of INVIDIOUS_INSTANCES) {
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 6000);
+
+        const response = await fetch(
+          `${instance}/api/v1/search?q=${encodeURIComponent(query.trim())}&type=video&page=1`,
+          { signal: controller.signal },
+        );
+        clearTimeout(timeout);
+
+        if (!response.ok) continue;
+
+        const data: InvidiousItem[] = await response.json();
+        const videos: SearchResult[] = data
+          .filter(item => item.type === 'video')
+          .slice(0, 20)
+          .map(item => ({
+            videoId: item.videoId,
+            title: item.title,
+            author: item.author,
+            duration: item.lengthSeconds ?? 0,
+          }));
+
+        setResults(videos);
+        setSearching(false);
+        return;
+      } catch (err) {
+        lastError = err instanceof Error ? err.message : 'Request failed';
+      }
+    }
+
+    setSearchError(lastError ?? 'All search servers failed. Please try again.');
+    setSearching(false);
+  };
+
+  const handleDownload = async (video: SearchResult) => {
+    if (downloadingId) return;
+
+    const { status: permStatus } = await MediaLibrary.requestPermissionsAsync(true);
+    if (permStatus !== 'granted') {
+      Alert.alert(
+        'Permission required',
+        'Media library permission is needed to save downloaded audio.',
+      );
+      return;
+    }
+
+    setDownloadingId(video.videoId);
+    setDownloadProgress(0);
+    setDownloadStage('fetching');
 
     try {
-      const { status: permStatus } = await MediaLibrary.requestPermissionsAsync(true);
-      if (permStatus !== 'granted') {
-        throw new Error('Media library permission is required to save downloads');
-      }
-
       const response = await fetch(COBALT_API, {
         method: 'POST',
         headers: {
@@ -46,7 +122,7 @@ export default function DownloadScreen() {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          url: url.trim(),
+          url: `https://www.youtube.com/watch?v=${video.videoId}`,
           downloadMode: 'audio',
           audioFormat: 'mp3',
           filenameStyle: 'basic',
@@ -60,26 +136,25 @@ export default function DownloadScreen() {
       const data = await response.json();
 
       if (data.status === 'error' || !data.url) {
-        throw new Error(data.error?.code ?? 'Could not get a download URL from cobalt');
+        throw new Error(data.error?.code ?? 'Could not get a download URL');
       }
 
-      // cobalt may return "picker" with multiple audio streams; pick the first
       const downloadUrl: string =
         data.status === 'picker' ? data.picker[0].url : data.url;
 
-      const filename: string = data.filename ?? `yt_audio_${Date.now()}.mp3`;
-      const tempUri = FileSystem.cacheDirectory + filename;
+      const safeTitle = video.title.replace(/[^a-zA-Z0-9 _-]/g, '').trim();
+      const filename: string = data.filename ?? `${safeTitle || video.videoId}.mp3`;
+      const tempUri = `${FileSystem.cacheDirectory}${filename}`;
 
-      setStatus('downloading');
+      setDownloadStage('downloading');
 
       const downloadResumable = FileSystem.createDownloadResumable(
         downloadUrl,
         tempUri,
         {},
-        downloadProgress => {
-          const total = downloadProgress.totalBytesExpectedToWrite;
-          if (total > 0) {
-            setProgress(downloadProgress.totalBytesWritten / total);
+        ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
+          if (totalBytesExpectedToWrite > 0) {
+            setDownloadProgress(totalBytesWritten / totalBytesExpectedToWrite);
           }
         },
       );
@@ -89,7 +164,7 @@ export default function DownloadScreen() {
         throw new Error('Download failed — no file was written');
       }
 
-      setStatus('saving');
+      setDownloadStage('saving');
 
       const asset = await MediaLibrary.createAssetAsync(result.uri);
       const album = await MediaLibrary.getAlbumAsync('YouTubeDownloads');
@@ -99,94 +174,120 @@ export default function DownloadScreen() {
         await MediaLibrary.addAssetsToAlbumAsync([asset], album, false);
       }
 
-      setStatus('done');
-      setUrl('');
+      setDownloadStage('');
+      setDownloadingId(null);
+      Alert.alert('Downloaded!', `"${video.title}" was saved to YouTubeDownloads.`);
+    } catch (err) {
+      setDownloadStage('');
+      setDownloadingId(null);
       Alert.alert(
-        'Download complete',
-        `"${filename}" was saved to the YouTubeDownloads folder.`,
+        'Download failed',
+        err instanceof Error ? err.message : 'An unknown error occurred',
       );
-    } catch (err: unknown) {
-      setStatus('error');
-      setErrorMsg(err instanceof Error ? err.message : 'An unknown error occurred');
     }
   };
 
-  const isLoading =
-    status === 'fetching' || status === 'downloading' || status === 'saving';
-
-  const statusLabel: Record<DownloadStatus, string> = {
-    idle: '',
-    fetching: 'Fetching audio info...',
-    downloading: `Downloading... ${Math.round(progress * 100)}%`,
-    saving: 'Saving to library...',
-    done: '',
-    error: '',
+  const getStageLabel = (id: string): string => {
+    if (downloadingId !== id) return '';
+    if (downloadStage === 'fetching') return 'Getting audio info...';
+    if (downloadStage === 'downloading') return `${Math.round(downloadProgress * 100)}%`;
+    if (downloadStage === 'saving') return 'Saving to library...';
+    return '';
   };
+
+  const isAnyDownloading = downloadingId !== null;
 
   return (
     <View style={styles.container}>
       <Text style={styles.title}>YouTube Download</Text>
 
-      <TextInput
-        style={styles.input}
-        placeholder="Paste YouTube URL here..."
-        placeholderTextColor={Colors[scheme].subText}
-        value={url}
-        onChangeText={setUrl}
-        autoCapitalize="none"
-        autoCorrect={false}
-        editable={!isLoading}
-        returnKeyType="done"
-        onSubmitEditing={handleDownload}
-      />
-
-      <TouchableOpacity
-        style={[
-          primaryButton[scheme],
-          styles.button,
-          (isLoading || !url.trim()) && styles.buttonDisabled,
-        ]}
-        onPress={handleDownload}
-        disabled={isLoading || !url.trim()}
-        activeOpacity={0.7}
-      >
-        {isLoading ? (
-          <ActivityIndicator color={Colors[scheme].primaryButtonText} />
-        ) : (
-          <Text style={[styles.buttonText, { color: Colors[scheme].primaryButtonText }]}>
-            Download Audio
-          </Text>
-        )}
-      </TouchableOpacity>
-
-      {isLoading && (
-        <View style={styles.statusContainer}>
-          <Text style={styles.statusText}>{statusLabel[status]}</Text>
-          {status === 'downloading' && (
-            <View style={styles.progressBarBg}>
-              <View
-                style={[
-                  styles.progressBarFill,
-                  { width: `${Math.round(progress * 100)}%` },
-                ]}
-              />
-            </View>
+      <View style={styles.searchRow}>
+        <TextInput
+          style={styles.input}
+          placeholder="Search YouTube..."
+          placeholderTextColor={Colors[scheme].subText}
+          value={query}
+          onChangeText={setQuery}
+          returnKeyType="search"
+          onSubmitEditing={handleSearch}
+          editable={!searching}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        <TouchableOpacity
+          style={[
+            primaryButton[scheme],
+            styles.searchButton,
+            (searching || !query.trim()) && styles.disabled,
+          ]}
+          onPress={handleSearch}
+          disabled={searching || !query.trim()}
+          activeOpacity={0.7}
+        >
+          {searching ? (
+            <ActivityIndicator color={Colors[scheme].primaryButtonText} size="small" />
+          ) : (
+            <Text style={[styles.searchButtonText, { color: Colors[scheme].primaryButtonText }]}>
+              Search
+            </Text>
           )}
-        </View>
-      )}
+        </TouchableOpacity>
+      </View>
 
-      {status === 'error' && <Text style={styles.errorText}>{errorMsg}</Text>}
+      {searchError ? <Text style={styles.errorText}>{searchError}</Text> : null}
 
-      {status === 'done' && (
-        <Text style={styles.successText}>
-          Saved! Open the Folder tab and look for "YouTubeDownloads".
-        </Text>
-      )}
+      <CustomFlatList
+        data={results}
+        keyExtractor={item => item.videoId}
+        emptyMessage={searching ? '' : 'Search for a YouTube video above'}
+        renderItem={({ item }) => {
+          const isThisDownloading = downloadingId === item.videoId;
 
-      <Text style={styles.hint}>
-        Downloads are saved to a "YouTubeDownloads" folder and appear in the Folder tab
-        automatically.
-      </Text>
+          return (
+            <View style={styles.resultRow}>
+              <View style={styles.resultInfo}>
+                <Text style={styles.resultTitle} numberOfLines={2}>
+                  {item.title}
+                </Text>
+                <Text style={styles.resultMeta} numberOfLines={1}>
+                  {item.author}
+                  {item.duration > 0 ? `  ·  ${formatDuration(item.duration)}` : ''}
+                </Text>
+
+                {isThisDownloading && downloadStage === 'downloading' && (
+                  <View style={styles.progressBarBg}>
+                    <View
+                      style={[
+                        styles.progressBarFill,
+                        { width: `${Math.round(downloadProgress * 100)}%` },
+                      ]}
+                    />
+                  </View>
+                )}
+                {isThisDownloading && (
+                  <Text style={styles.stageText}>{getStageLabel(item.videoId)}</Text>
+                )}
+              </View>
+
+              <TouchableOpacity
+                style={[
+                  styles.dlButton,
+                  isAnyDownloading && !isThisDownloading && styles.disabled,
+                ]}
+                onPress={() => handleDownload(item)}
+                disabled={isAnyDownloading}
+                activeOpacity={0.7}
+              >
+                {isThisDownloading ? (
+                  <ActivityIndicator size="small" color={Colors[scheme].tint} />
+                ) : (
+                  <Text style={[styles.dlIcon, { color: Colors[scheme].text }]}>↓</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          );
+        }}
+      />
     </View>
   );
 }
@@ -197,74 +298,102 @@ const getStyles = (scheme: 'light' | 'dark') =>
       flex: 1,
       backgroundColor: Colors[scheme].background,
       paddingTop: 65,
-      paddingHorizontal: 20,
     },
     title: {
       fontSize: 22,
       fontWeight: '700',
-      marginBottom: 24,
+      marginBottom: 16,
+      paddingHorizontal: 20,
       color: Colors[scheme].text,
     },
+    searchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: 20,
+      marginBottom: 12,
+      gap: 10,
+    },
     input: {
+      flex: 1,
       backgroundColor: Colors[scheme].card,
       borderRadius: 10,
-      paddingHorizontal: 16,
-      paddingVertical: 14,
+      paddingHorizontal: 14,
+      paddingVertical: 12,
       fontSize: 15,
       color: Colors[scheme].text,
       borderWidth: 1,
       borderColor: Colors[scheme].border,
-      marginBottom: 16,
     },
-    button: {
+    searchButton: {
       borderRadius: 10,
-      paddingVertical: 14,
+      paddingHorizontal: 16,
+      paddingVertical: 12,
+      minWidth: 80,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    buttonDisabled: {
-      opacity: 0.4,
-    },
-    buttonText: {
-      fontSize: 16,
+    searchButtonText: {
+      fontSize: 15,
       fontWeight: '600',
     },
-    statusContainer: {
-      marginTop: 24,
+    disabled: {
+      opacity: 0.4,
     },
-    statusText: {
+    errorText: {
+      color: '#ff4d4d',
+      fontSize: 13,
+      paddingHorizontal: 20,
+      marginBottom: 8,
+    },
+    resultRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingVertical: 12,
+      paddingHorizontal: 20,
+    },
+    resultInfo: {
+      flex: 1,
+      marginRight: 12,
+    },
+    resultTitle: {
+      fontSize: 15,
+      fontWeight: '500',
+      color: Colors[scheme].text,
+      marginBottom: 4,
+    },
+    resultMeta: {
+      fontSize: 12,
       color: Colors[scheme].subText,
-      fontSize: 14,
-      marginBottom: 10,
-      textAlign: 'center',
     },
     progressBarBg: {
-      height: 6,
+      height: 4,
       backgroundColor: Colors[scheme].disc,
-      borderRadius: 3,
+      borderRadius: 2,
       overflow: 'hidden',
+      marginTop: 6,
     },
     progressBarFill: {
       height: '100%',
       backgroundColor: Colors[scheme].tint,
-      borderRadius: 3,
+      borderRadius: 2,
     },
-    errorText: {
-      color: '#ff4d4d',
-      fontSize: 14,
-      marginTop: 16,
-      textAlign: 'center',
+    stageText: {
+      fontSize: 11,
+      color: Colors[scheme].tint,
+      marginTop: 4,
     },
-    successText: {
-      color: '#4caf50',
-      fontSize: 14,
-      marginTop: 16,
-      textAlign: 'center',
+    dlButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: Colors[scheme].card,
+      borderWidth: 1,
+      borderColor: Colors[scheme].border,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
-    hint: {
-      color: Colors[scheme].subText,
-      fontSize: 13,
-      marginTop: 'auto',
-      paddingBottom: 40,
-      textAlign: 'center',
-      lineHeight: 20,
+    dlIcon: {
+      fontSize: 18,
+      fontWeight: '600',
     },
   });
