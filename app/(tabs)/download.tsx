@@ -20,9 +20,8 @@ const COBALT_API = 'https://api.cobalt.tools/';
 
 // Multiple instances as fallback in case one is down
 const INVIDIOUS_INSTANCES = [
-  'https://invidious.privacyredirect.com',
-  'https://inv.nadeko.net',
-  'https://yt.artemislena.eu',
+  'https://yt.chocolatemoo53.com',
+  'https://inv.thepixora.com',
 ];
 
 type SearchResult = {
