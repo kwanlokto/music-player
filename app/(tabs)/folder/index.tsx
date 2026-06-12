@@ -1,4 +1,4 @@
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 
 import { useEffect, useState } from 'react';
 import {
@@ -6,11 +6,11 @@ import {
   Text,
   TouchableOpacity,
   View,
-  useColorScheme,
 } from 'react-native';
 
 import { CustomFlatList } from '@/components/CustomFlatList';
 import { Colors } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { capitalize } from '@/helpers';
 import { useRouter } from 'expo-router';
 
@@ -19,18 +19,6 @@ export default function FolderListScreen() {
   const [folders, setFolders] = useState<string[]>([]);
   const scheme = useColorScheme();
   const styles = getStyles(scheme ?? 'dark');
-
-  useEffect(() => {
-    const requestPermissionAndLoad = async () => {
-      const { status } = await MediaLibrary.requestPermissionsAsync(true);
-      if (status === 'granted') {
-        loadFolders();
-      } else {
-        console.warn('Permission not granted:', status);
-      }
-    };
-    requestPermissionAndLoad();
-  }, []);
 
   const loadFolders = async () => {
     try {
@@ -59,6 +47,18 @@ export default function FolderListScreen() {
       console.log('Error loading music folders:', err);
     }
   };
+
+  useEffect(() => {
+    const requestPermissionAndLoad = async () => {
+      const { status } = await MediaLibrary.requestPermissionsAsync(true);
+      if (status === 'granted') {
+        loadFolders();
+      } else {
+        console.warn('Permission not granted:', status);
+      }
+    };
+    requestPermissionAndLoad();
+  }, []);
 
   return (
     <View style={styles.container}>

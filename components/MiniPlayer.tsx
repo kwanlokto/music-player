@@ -5,13 +5,13 @@ import {
   Text,
   TouchableOpacity,
   View,
-  useColorScheme,
 } from 'react-native';
 
 import { Colors } from '@/constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import React from 'react';
 import { usePlayback } from '@/context/playbackContext';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 export const MiniPlayer = () => {
   const { title, isPlaying, togglePlay, playNext, playPrevious } =

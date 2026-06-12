@@ -1,130 +1,54 @@
 import { useEffect, useState } from 'react';
 import TrackPlayer, {
-  AppKilledPlaybackBehavior,
-  Capability,
   Event,
-  State,
-  Track,
-  useTrackPlayerEvents,
-} from 'react-native-track-player';
+  PlayerCommand,
+  RepeatMode,
+  type MediaItem,
+  useActiveMediaItem,
+  useIsPlaying,
+  useProgress,
+} from '@rntp/player';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const fadeVolume = async (target: number, duration: number = 500) => {
-  const current = await TrackPlayer.getVolume();
-  const steps = 10;
-  const stepTime = duration / steps;
-  const diff = target - current;
-
-  for (let i = 1; i <= steps; i++) {
-    const newVolume = current + (diff * i) / steps;
-    await TrackPlayer.setVolume(newVolume);
-    await new Promise(resolve => setTimeout(resolve, stepTime));
-  }
-};
 
 /**
  * Provider component that wraps the app and manages linked-list audio playback.
  */
 export const useCustomAudioPlayer = () => {
-  const [title, setTitle] = useState<string>();
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [duration, setDuration] = useState(0);
-  const [position, setPosition] = useState(0);
-  const [queue, setQueue] = useState<Track[]>([]);
-
-  // --- TrackPlayer event listeners ---
-  useTrackPlayerEvents(
-    [
-      Event.PlaybackState,
-      Event.PlaybackProgressUpdated,
-      Event.PlaybackActiveTrackChanged,
-      Event.RemoteDuck,
-      Event.PlaybackQueueEnded,
-    ],
-    async event => {
-      if (event.type === Event.PlaybackState) {
-        setIsPlaying(event.state === State.Playing);
-      }
-
-      if (event.type === Event.PlaybackProgressUpdated) {
-        setPosition(event.position);
-        setDuration(event.duration);
-      }
-
-      if (
-        event.type === Event.PlaybackActiveTrackChanged &&
-        event.index != null
-      ) {
-        const track = await TrackPlayer.getTrack(event.index);
-        if (typeof track !== 'undefined') {
-          const { title } = track;
-          setTitle(title);
-        } else {
-          setTitle("")
-        }
-
-        const queue = await TrackPlayer.getQueue();
-        await AsyncStorage.setItem('trackQueue', JSON.stringify(queue));
-      }
-
-      if (event.type === Event.RemoteDuck) {
-        if (event.paused) {
-          // Call interruption → fade out and pause
-          await fadeVolume(0.0, 800); // fade out in 0.8s
-          await TrackPlayer.pause();
-        } else {
-          // Ducking released → fade back in
-          await TrackPlayer.play();
-          await fadeVolume(1.0, 800); // fade in in 0.8s
-        }
-      }
-
-      if (event.type === Event.PlaybackQueueEnded) {
-        // Start from first track in queue
-        const queue = await TrackPlayer.getQueue();
-        if (queue.length > 0) {
-          await TrackPlayer.skip(0);
-          await TrackPlayer.play();
-        }
-      }
-    },
-  );
+  const [queue, setQueue] = useState<MediaItem[]>([]);
+  const isPlaying = useIsPlaying();
+  const { position, duration } = useProgress(0.1);
+  const activeTrack = useActiveMediaItem();
 
   useEffect(() => {
     const setup = async () => {
       try {
-        // Prevent initializing the player twice
-        await TrackPlayer.setupPlayer({ autoHandleInterruptions: true });
-        await TrackPlayer.updateOptions({
+        TrackPlayer.setupPlayer({
+          handleAudioBecomingNoisy: true,
           android: {
-            appKilledPlaybackBehavior:
-              AppKilledPlaybackBehavior.ContinuePlayback, // or StopPlayback, or PausePlayback
+            wakeMode: 'network',
+            taskRemovedBehavior: 'continue',
           },
-          progressUpdateEventInterval: 0.1,
+        });
+        TrackPlayer.setCommands({
           capabilities: [
-            Capability.Play,
-            Capability.Pause,
-            Capability.SkipToNext,
-            Capability.SkipToPrevious,
-            Capability.Stop,
-          ],
-          compactCapabilities: [Capability.Play, Capability.Pause],
-          notificationCapabilities: [
-            Capability.Play,
-            Capability.Pause,
-            Capability.SkipToNext,
-            Capability.SkipToPrevious,
+            PlayerCommand.PlayPause,
+            PlayerCommand.Next,
+            PlayerCommand.Previous,
+            PlayerCommand.Stop,
+            PlayerCommand.Seek,
           ],
         });
+        TrackPlayer.setRepeatMode(RepeatMode.All);
       } catch {}
 
       const savedQueue = await AsyncStorage.getItem('trackQueue');
       if (savedQueue) {
-        const tracks: Track[] = JSON.parse(savedQueue);
-        setTitle(tracks[0].title);
-        await addToQueue(tracks);
-        await TrackPlayer.skip(0);
+        const tracks: MediaItem[] = JSON.parse(savedQueue);
+        if (tracks.length > 0) {
+          TrackPlayer.setMediaItems(tracks);
+          setQueue(tracks);
+        }
       }
     };
 
@@ -132,58 +56,64 @@ export const useCustomAudioPlayer = () => {
 
     // Cleanup
     return () => {
-      TrackPlayer.reset();
+      TrackPlayer.clear();
     };
+  }, []);
+
+  // Persist the queue whenever it changes
+  useEffect(() => {
+    const subscription = TrackPlayer.addEventListener(
+      Event.QueueChanged,
+      () => {
+        const updatedQueue = TrackPlayer.getQueue();
+        setQueue(updatedQueue);
+        AsyncStorage.setItem('trackQueue', JSON.stringify(updatedQueue));
+      },
+    );
+
+    return () => subscription.remove();
   }, []);
 
   /**
    * Plays a single track immediately.
    * Stops any currently playing track.
    * Automatically sets up next track when finished.
-   * @param track Track to play
+   * @param index Index of the track in the queue to play
    */
   const playTrack = async (index: number) => {
     try {
-      // Find the node immediately (don’t wait for React state)
-
-      // Load and play new track
-      await TrackPlayer.skip(index);
-      await TrackPlayer.play();
+      TrackPlayer.skipToIndex(index);
+      TrackPlayer.play();
     } catch (e) {
       console.error('Error playing track:', e);
     }
   };
 
   /**
-   * Adds multiple tracks to the playback linked list.
-   * Links nodes together to form a doubly-linked list.
-   * @param tracks Array of Track objects
+   * Replaces the queue with the given tracks.
+   * @param tracks Array of MediaItem objects
    */
-  const addToQueue = async (tracks: Track[]) => {
-    await TrackPlayer.reset();
-    await TrackPlayer.add(tracks);
+  const addToQueue = async (tracks: MediaItem[]) => {
+    TrackPlayer.setMediaItems(tracks);
     setQueue(tracks);
-    // await AsyncStorage.setItem('trackQueue', JSON.stringify(tracks));
   };
 
   /**
-   * Plays the next track in the linked list.
-   * Stops playback if there is no next node.
+   * Plays the next track in the queue.
    */
   const playNext = async () => {
-    await TrackPlayer.skipToNext();
+    TrackPlayer.skipToNext();
   };
 
   /**
-   * Plays the previous track in the linked list.
-   * Does nothing if there is no previous node.
+   * Plays the previous track in the queue, if available.
    */
   const playPrevious = async () => {
-    await TrackPlayer.skipToPrevious();
+    TrackPlayer.skipToPrevious();
   };
 
   const handleSlidingComplete = async (value: number) => {
-    await TrackPlayer.seekTo(value); // TrackPlayer uses seconds
+    TrackPlayer.seekTo(value); // TrackPlayer uses seconds
   };
 
   /**
@@ -192,9 +122,9 @@ export const useCustomAudioPlayer = () => {
    */
   const togglePlay = async () => {
     if (isPlaying) {
-      await TrackPlayer.pause();
+      TrackPlayer.pause();
     } else {
-      await TrackPlayer.play();
+      TrackPlayer.play();
     }
   };
 
@@ -202,13 +132,13 @@ export const useCustomAudioPlayer = () => {
    * Stops playback completely
    */
   const stopTrack = async () => {
-    await TrackPlayer.stop();
+    TrackPlayer.stop();
     await AsyncStorage.removeItem('currentTrack');
     await AsyncStorage.removeItem('trackQueue');
   };
 
   return {
-    title,
+    title: activeTrack?.title,
     isPlaying,
     position,
     duration,

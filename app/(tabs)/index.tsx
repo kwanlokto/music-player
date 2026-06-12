@@ -4,10 +4,10 @@ import {
   Text,
   TouchableOpacity,
   View,
-  useColorScheme,
 } from 'react-native';
 
 import { usePlayback } from '@/context/playbackContext';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { formatTime } from '@/helpers';
 import { Ionicons } from '@expo/vector-icons';
 import Slider from '@react-native-community/slider';

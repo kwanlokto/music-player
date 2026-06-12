@@ -1,7 +1,7 @@
 import React, { createContext, useContext } from 'react';
 
 import { useCustomAudioPlayer } from '@/hooks/useAudioPlayer';
-import { Track } from 'react-native-track-player';
+import type { MediaItem } from '@rntp/player';
 
 /**
  * Defines the shape of the PlaybackContext.
@@ -28,9 +28,9 @@ type PlaybackContextType = {
   /**
    * Adds multiple tracks to the playback linked list.
    * If the list is empty, the first track becomes the head node.
-   * @param tracks Array of Track objects to enqueue
+   * @param tracks Array of MediaItem objects to enqueue
    */
-  addToQueue: (tracks: Track[]) => Promise<void>;
+  addToQueue: (tracks: MediaItem[]) => Promise<void>;
 
   /** Plays the next track in the linked list. Stops if at the end. */
   playNext: () => Promise<void>;
@@ -46,7 +46,7 @@ type PlaybackContextType = {
   /** Stops playback completely and clears the linked list. */
   stopTrack: () => Promise<void>;
 
-  queue: Track[] | undefined;
+  queue: MediaItem[] | undefined;
 };
 
 /**

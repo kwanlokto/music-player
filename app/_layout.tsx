@@ -3,9 +3,10 @@ import 'react-native-reanimated';
 import {
   DarkTheme,
   DefaultTheme,
+  Stack,
   ThemeProvider,
-} from '@react-navigation/native';
-import { Stack, useRouter } from 'expo-router';
+  useRouter,
+} from 'expo-router';
 import { useEffect, useState } from 'react';
 
 import { PlaybackProvider } from '@/context/playbackContext';
@@ -13,11 +14,6 @@ import { useColorScheme } from '@/hooks/useColorScheme';
 import { useFonts } from 'expo-font';
 import { StatusBar } from 'expo-status-bar';
 import { Linking } from 'react-native';
-import TrackPlayer from 'react-native-track-player';
-import service from '../service';
-
-// Register the background playback service
-TrackPlayer.registerPlaybackService(() => service);
 
 export default function RootLayout() {
   const router = useRouter();

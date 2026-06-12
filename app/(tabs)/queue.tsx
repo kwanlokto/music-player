@@ -4,12 +4,12 @@ import {
   Text,
   TouchableOpacity,
   View,
-  useColorScheme,
 } from 'react-native';
 
 import { CustomFlatList } from '@/components/CustomFlatList';
 import { Colors } from '@/constants/Colors';
 import { usePlayback } from '@/context/playbackContext';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 export default function QueuePage() {
   const { title, isPlaying, queue, playTrack } = usePlayback();
@@ -27,7 +27,7 @@ export default function QueuePage() {
       <Text style={styles.title}>Playback Queue</Text>
       <CustomFlatList
         data={queue}
-        keyExtractor={(item, index) => `${item.id}-${index}`}
+        keyExtractor={(item, index) => `${item.mediaId}-${index}`}
         renderItem={({ item, index }) => {
           const isSongPlaying = item.title === title && isPlaying;
 

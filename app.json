@@ -7,7 +7,6 @@
     "icon": "./assets/images/icon.png",
     "scheme": "myapp",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.kwanlokto.MusicPlayerApp"
@@ -17,8 +16,6 @@
         "foregroundImage": "./assets/images/icon-foreground.png",
         "backgroundColor": "#ffffff"
       },
-      "useNextNotificationsApi": true,
-      "edgeToEdgeEnabled": true,
       "permissions": ["WAKE_LOCK", "FOREGROUND_SERVICE"],
       "package": "com.kwanlokto.MusicPlayerApp"
     },

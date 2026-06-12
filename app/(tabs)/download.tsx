@@ -1,5 +1,5 @@
-import * as FileSystem from 'expo-file-system';
-import * as MediaLibrary from 'expo-media-library';
+import { Paths, File } from 'expo-file-system';
+import * as MediaLibrary from 'expo-media-library/legacy';
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
@@ -9,11 +9,11 @@ import {
   TextInput,
   TouchableOpacity,
   View,
-  useColorScheme,
 } from 'react-native';
 
 import { CustomFlatList } from '@/components/CustomFlatList';
 import { Colors, primaryButton } from '@/constants/Colors';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { formatDuration } from '@/helpers';
 
 const COBALT_API = 'https://api.cobalt.tools/';
@@ -144,22 +144,19 @@ export default function DownloadScreen() {
 
       const safeTitle = video.title.replace(/[^a-zA-Z0-9 _-]/g, '').trim();
       const filename: string = data.filename ?? `${safeTitle || video.videoId}.mp3`;
-      const tempUri = `${FileSystem.cacheDirectory}${filename}`;
+      const destination = new File(Paths.cache, filename);
 
       setDownloadStage('downloading');
 
-      const downloadResumable = FileSystem.createDownloadResumable(
-        downloadUrl,
-        tempUri,
-        {},
-        ({ totalBytesWritten, totalBytesExpectedToWrite }) => {
-          if (totalBytesExpectedToWrite > 0) {
-            setDownloadProgress(totalBytesWritten / totalBytesExpectedToWrite);
+      const downloadTask = File.createDownloadTask(downloadUrl, destination, {
+        onProgress: ({ bytesWritten, totalBytes }) => {
+          if (totalBytes > 0) {
+            setDownloadProgress(bytesWritten / totalBytes);
           }
         },
-      );
+      });
 
-      const result = await downloadResumable.downloadAsync();
+      const result = await downloadTask.downloadAsync();
       if (!result?.uri) {
         throw new Error('Download failed — no file was written');
       }

@@ -1,4 +1,4 @@
-import * as MediaLibrary from 'expo-media-library';
+import * as MediaLibrary from 'expo-media-library/legacy';
 
 import { Colors, primaryButton } from '@/constants/Colors';
 import { Ionicons, MaterialIcons } from '@expo/vector-icons';
@@ -9,11 +9,11 @@ import {
   Text,
   TouchableOpacity,
   View,
-  useColorScheme,
 } from 'react-native';
 
 import { CustomFlatList } from '@/components/CustomFlatList';
 import { usePlayback } from '@/context/playbackContext';
+import { useColorScheme } from '@/hooks/useColorScheme';
 import { formatDuration } from '@/helpers';
 
 export default function FolderPage() {

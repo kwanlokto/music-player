@@ -5,11 +5,11 @@ import {
     Text,
     View,
     ViewStyle,
-    useColorScheme,
 } from 'react-native';
 
 // StyledFlatList.tsx
 import React from 'react';
+import { useColorScheme } from '@/hooks/useColorScheme';
 
 // Extend FlatListProps with your default item type
 export type CustomFlatListProps<ItemT> = FlatListProps<ItemT> & {
