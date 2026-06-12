@@ -50,7 +50,7 @@ export default function FolderListScreen() {
 
   useEffect(() => {
     const requestPermissionAndLoad = async () => {
-      const { status } = await MediaLibrary.requestPermissionsAsync(true);
+      const { status } = await MediaLibrary.requestPermissionsAsync();
       if (status === 'granted') {
         loadFolders();
       } else {
